@@ -2,8 +2,60 @@
 
 منصة ذكاء اصطناعي للبحث العلمي - تجمع وتحلل المصادر الأكاديمية الغربية وتولّد مسودات تغريدات عربية رصينة في السياسة والاقتصاد والعلاقات الدولية والشرق الأوسط
 
-## 📋 خطة العمل السريعة
+## تنويه مهم حول التوليد الذكي
+- يتم توليد التغريدات عبر Perplexity API بشكل صريح، وليس عبر OpenAI.
+- يرجى التأكد من ضبط مفتاح البيئة: PERPLEXITY_API_KEY في ملف .env.
+- لتسمية الخدمة وتوحيدها داخل الكود، يجب تعديل الملفات البرمجية لتكون الخدمة باسم: services/perplexity_tweet_generator.py بدل أي مرجع باسم openai.
 
+## مثال تكامل Python مع Perplexity API لطباعة تغريدة علمية بالعربية
+يوضح المثال التالي كيفية استدعاء واجهة Perplexity للطباعة السريعة لتغريدة عربية علمية. استبدل YOUR_PERPLEXITY_API_KEY بمفتاحك:
+
+```python
+import os
+import requests
+
+API_KEY = os.getenv("PERPLEXITY_API_KEY", "YOUR_PERPLEXITY_API_KEY")
+ENDPOINT = "https://api.perplexity.ai/chat/completions"
+
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json",
+}
+
+payload = {
+    "model": "llama-3.1-sonar-small-128k-chat",  # اختر الموديل المناسب لحسابك
+    "messages": [
+        {
+            "role": "system",
+            "content": "أنت مساعد خبير ينتج تغريدات عربية علمية قصيرة وموجزة مع وسوم مناسبة.",
+        },
+        {
+            "role": "user",
+            "content": (
+                "ولّد تغريدة عربية علمية عن تأثير الذكاء الاصطناعي على أسواق العمل في الشرق الأوسط، "
+                "مع تضمين 2-3 وسوم مناسبة دون روابط، وبأسلوب رصين ومختصر (حد أقصى 280 حرفًا)."
+            ),
+        },
+    ],
+    "temperature": 0.5,
+    "max_tokens": 180,
+}
+
+resp = requests.post(ENDPOINT, headers=headers, json=payload, timeout=60)
+resp.raise_for_status()
+
+data = resp.json()
+# استخرج النص من البنية القياسية لاستجابة الدردشة
+content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+print(content)
+```
+
+نموذج مخرجات متوقعة:
+```
+🧠 تقارير حديثة تشير إلى أن الذكاء الاصطناعي سيعيد تشكيل مهارات سوق العمل في الشرق الأوسط، مع تركيز متزايد على الوظائف التقنية والتحليلية. الاستثمار في إعادة التأهيل والتعلم المستمر سيحدد التنافسية مستقبلًا. #الذكاء_الاصطناعي #أسواق_العمل #الشرق_الأوسط
+```
+
+## 📋 خطة العمل السريعة
 ### Sprint 0: إعداد البنية الأساسية (الأسبوع الأول)
 - ✅ إنشاء مستودع المشروع
 - 🔄 إعداد بيئة التطوير (Docker, PostgreSQL)
@@ -12,12 +64,11 @@
 
 ### Sprint 1: النواة الوظيفية (الأسبوع الثاني)
 - 🔍 تطوير محرك البحث الأكاديمي
-- 🤖 تكامل OpenAI API لتوليد التغريدات
+- 🤖 تكامل Perplexity API لتوليد التغريدات
 - 📊 واجهة إدارة أساسية
 - ⚡ إعداد Celery للمهام غير المتزامنة
 
 ## 🏗️ الهيكل البرمجي
-
 ```
 x-research-curator-ar/
 ├── app/
@@ -36,15 +87,15 @@ x-research-curator-ar/
 │   │   ├── tweets.py            # نماذج التغريدات
 │   │   └── sources.py           # نماذج المصادر
 │   ├── services/
-│   │   ├── research_engine.py   # محرك البحث العلمي
-│   │   ├── ai_curator.py        # منسق الذكاء الاصطناعي
-│   │   ├── tweet_generator.py   # مولد التغريدات
+│   │   ├── research_engine.py           # محرك البحث العلمي
+│   │   ├── ai_curator.py                # منسق الذكاء الاصطناعي
+│   │   ├── perplexity_tweet_generator.py# مولد التغريدات (Perplexity)
 │   │   └── integrations/
-│   │       ├── notion.py        # تكامل Notion
-│   │       ├── slack.py         # تكامل Slack
-│   │       └── zapier.py        # تكامل Zapier
+│   │       ├── notion.py                # تكامل Notion
+│   │       ├── slack.py                 # تكامل Slack
+│   │       └── zapier.py                # تكامل Zapier
 │   └── workers/
-│       └── celery_app.py        # مهام Celery
+│       └── celery_app.py                # مهام Celery
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
@@ -52,48 +103,33 @@ x-research-curator-ar/
 ```
 
 ## 🛠️ التقنيات المستخدمة
-
-- **Backend**: FastAPI (Python) - إطار عمل سريع وحديث
-- **قاعدة البيانات**: PostgreSQL مع pgvector - للبحث الدلالي المتقدم
-- **المهام غير المتزامنة**: Celery مع Redis
-- **الذكاء الاصطناعي**: OpenAI GPT-4 لتوليد المحتوى
-- **التكاملات**:
-  - 📝 Notion API - لحفظ ومشاركة البحوث
-  - 💬 Slack API - للإشعارات والتنبيهات
-  - ⚡ Zapier - للأتمتة والربط مع أدوات أخرى
-- **النشر**: Docker & Docker Compose
-- **البحث العلمي**: arXiv, PubMed, Google Scholar APIs
+- Backend: FastAPI (Python)
+- قاعدة البيانات: PostgreSQL + pgvector
+- المهام غير المتزامنة: Celery + Redis
+- الذكاء الاصطناعي: Perplexity API لتوليد المحتوى
+- التكاملات: Notion, Slack, Zapier
+- النشر: Docker & Docker Compose
+- البحث العلمي: arXiv, PubMed, Google Scholar APIs
 
 ## 📱 نموذج تغريدة علمية
-
 ### المدخلات:
-```yaml
 موضوع: "تأثير الذكاء الاصطناعي على أسواق العمل في الشرق الأوسط"
+
 مصادر: ["MIT Technology Review", "Nature AI", "Middle East Economic Survey"]
+
 الوسوم: ["#الذكاء_الاصطناعي", "#أسواق_العمل", "#الشرق_الأوسط"]
-```
 
-### النتيجة:
-```
-🧠 دراسة حديثة من MIT تكشف: الذكاء الاصطناعي قد يخلق 2.3 مليون وظيفة جديدة في الشرق الأوسط بحلول 2030، مع تركز 65% منها في القطاعات التقنية والطبية.
-
-📊 التحدي: إعادة تأهيل 40% من القوى العاملة الحالية
-💡 الحل: استثمار حكومي في التدريب التقني
-
-#الذكاء_الاصطناعي #أسواق_العمل #الشرق_الأوسط #مستقبل_العمل
-
-🔗 المصادر: MIT Tech Review, Nature AI
-```
+### النتيجة (مثال):
+`🧠 دراسة حديثة من MIT تكشف: الذكاء الاصطناعي قد يخلق فرص عمل جديدة مع تحول في المهارات المطلوبة. 📊 الحل: الاستثمار في التدريب وإعادة التأهيل. #الذكاء_الاصطناعي #أسواق_العمل #الشرق_الأوسط`
 
 ## 🚀 تعليمات التشغيل
-
 ### متطلبات النظام
 - Docker و Docker Compose
 - Python 3.9+
 - PostgreSQL 14+ مع pgvector
 
 ### التشغيل السريع
-```bash
+```
 # استنساخ المستودع
 git clone https://github.com/khaliiid501/x-research-curator-ar.git
 cd x-research-curator-ar
@@ -102,6 +138,7 @@ cd x-research-curator-ar
 cp .env.example .env
 
 # تحرير المتغيرات البيئية
+# أضف PERPLEXITY_API_KEY بدلاً من OPENAI_API_KEY
 nano .env
 
 # تشغيل المنصة
@@ -113,14 +150,14 @@ docker-compose up -d
 ```
 
 ### متغيرات البيئة المطلوبة
-```env
+```
 # Database
 POSTGRES_USER=curator
 POSTGRES_PASSWORD=your_secure_password
 POSTGRES_DB=research_curator
 
 # APIs
-OPENAI_API_KEY=your_openai_key
+PERPLEXITY_API_KEY=your_perplexity_key
 NOTION_API_KEY=your_notion_key
 SLACK_BOT_TOKEN=your_slack_token
 ZAPIER_WEBHOOK_URL=your_zapier_webhook
@@ -130,96 +167,49 @@ SECRET_KEY=your_secret_key_here
 ALGORITHM=HS256
 ```
 
-## 💎 القيم والمزايا الأساسية
+## x-research-curator-ar (English)
 
-### 🎯 الهدف الجوهري
-ردم الفجوة بين البحث العلمي الغربي والمحتوى العربي الرصين، من خلال:
-
-### ✨ المزايا التنافسية
-1. **الذكاء الاصطناعي المتخصص**: نماذج مدربة على فهم السياق العربي والإسلامي
-2. **التحليل العميق**: استخراج الرؤى من مئات المصادر الأكاديمية يومياً
-3. **التوطين الثقافي**: محتوى يراعي الحساسيات والقيم المحلية
-4. **الأتمتة الذكية**: من البحث إلى النشر في دقائق معدودة
-5. **التكامل السلس**: ربط مع أدوات العمل الشائعة
-
-### 📈 المؤشرات المستهدفة
-- **الجودة**: 95%+ دقة في استخراج المعلومات
-- **السرعة**: توليد تغريدة علمية كاملة في أقل من 3 دقائق
-- **التنوع**: تغطية 50+ مجال أكاديمي
-- **التفاعل**: زيادة معدل التفاعل بنسبة 300%
-
-### 🌍 الأثر المجتمعي
-- **التعليم**: نشر المعرفة العلمية بالعربية
-- **البحث**: تسهيل الوصول للمصادر الأكاديمية
-- **الثقافة**: تعزيز الفكر النقدي والعلمي
-- **الاقتصاد**: دعم اقتصاد المعرفة العربي
-
-## 🔮 الرؤية المستقبلية
-
-### المرحلة القادمة (3-6 أشهر)
-- 🤖 تدريب نموذج AI مخصص للمحتوى العربي العلمي
-- 📱 تطبيق جوال للمتابعة والإدارة
-- 🔗 API مفتوح للمطورين العرب
-- 📊 لوحة تحليلات متقدمة
-
-### الرؤية طويلة المدى
-- 🌐 شبكة باحثين عرب متصلة
-- 📚 مكتبة معرفة علمية عربية ضخمة
-- 🎓 برامج تعليمية تفاعلية
-- 🏆 معايير جودة للمحتوى العلمي العربي
-
----
-
-# x-research-curator-ar (English)
-
-## 🔬 AI-Powered Arabic Scientific Research Curator
+🔬 AI-Powered Arabic Scientific Research Curator
 
 An intelligent platform that aggregates and analyzes Western academic sources to generate high-quality Arabic tweets in politics, economics, international relations, and Middle Eastern studies.
 
-## 🚀 Quick Overview
+- Generation is explicitly powered by Perplexity API (not OpenAI).
+- Service file should be named services/perplexity_tweet_generator.py.
 
-**Mission**: Bridge the gap between Western academic research and quality Arabic content through AI-powered curation and localization.
-
-**Core Features**:
-- 🔍 Academic source aggregation (arXiv, PubMed, Google Scholar)
-- 🤖 AI-powered content generation with cultural sensitivity
-- 📱 Social media optimization for Arabic audiences
-- 🔗 Seamless integrations (Notion, Slack, Zapier)
-- ⚡ Real-time research monitoring and alerts
-
-**Tech Stack**: FastAPI, PostgreSQL + pgvector, Celery, OpenAI GPT-4, Docker
-
-**Target Impact**: 95% accuracy, <3min generation time, 300% engagement increase
-
-## 🛠️ Quick Start
-
-```bash
+### Quick Start
+```
 git clone https://github.com/khaliiid501/x-research-curator-ar.git
 cd x-research-curator-ar
 cp .env.example .env
-# Edit .env with your API keys
+# Add PERPLEXITY_API_KEY to .env
 docker-compose up -d
 # Access: http://localhost:8000/docs
 ```
 
-## 🌟 Value Proposition
+### Python Integration Example (English)
+```python
+import os
+import requests
 
-1. **Cultural Intelligence**: AI models trained for Arabic-Islamic context
-2. **Academic Rigor**: Verification against peer-reviewed sources
-3. **Automation Excellence**: End-to-end content pipeline
-4. **Community Impact**: Democratizing scientific knowledge in Arabic
+API_KEY = os.getenv("PERPLEXITY_API_KEY")
+ENDPOINT = "https://api.perplexity.ai/chat/completions"
 
----
+headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+payload = {
+    "model": "llama-3.1-sonar-small-128k-chat",
+    "messages": [
+        {"role": "system", "content": "You write concise Arabic scientific tweets."},
+        {"role": "user", "content": "اكتب تغريدة عربية علمية موجزة عن الحوسبة الكمية وتأثيرها المتوقع على التشفير."},
+    ],
+}
+
+print(requests.post(ENDPOINT, headers=headers, json=payload).json()["choices"][0]["message"]["content"]) 
+```
 
 **المساهمة مرحب بها | Contributions Welcome**
-
 هذا مشروع مفتوح المصدر يهدف لخدمة المجتمع العلمي العربي
-
 This open-source project aims to serve the Arabic scientific community
 
-📧 Contact: [khalid@example.com](mailto:khalid@example.com)
-🐙 GitHub: [@khaliiid501](https://github.com/khaliiid501)
+📧 Contact: khalid@example.com  |  🐙 GitHub: @khaliiid501
 
----
-
-*Built with ❤️ for the Arabic scientific community*
+Built with ❤️ for the Arabic scientific community
