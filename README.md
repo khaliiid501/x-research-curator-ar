@@ -1,56 +1,199 @@
 # x-research-curator-ar
+
 منصة ذكاء اصطناعي للبحث العلمي - تجمع وتحلل المصادر الأكاديمية الغربية وتولّد مسودات تغريدات عربية رصينة في السياسة والاقتصاد والعلاقات الدولية والشرق الأوسط
 
-> **📌 ملحوظة هامة:** المنصة مصممة للتكامل المستقبلي مع **Zapier** و**Slack** و**Notion** لتسهيل الأتمتة وتبسيط سير العمل.
+> 📌 ملحوظة هامة: المنصة مصممة للتكامل المستقبلي مع Zapier وSlack وNotion لتسهيل الأتمتة وتبسيط سير العمل.
 
-## تنويه مهم حول التوليد الذكي
+
+تصميم واجهة المستخدم (Frontend) بأسلوب الزجاج السائل وأقسام التكامل
+-------------------------------------------------------------------
+
+يشرح هذا القسم تصميم الواجهة الأمامية بأسلوب الزجاج السائل (Glassmorphism) مع تقسيم واضح للوحات ونماذج الإدخال والتكاملات. الهدف هو واجهة نظيفة تدعم الإنتاجية، قابلة للتوسّع، وتتكامل بسلاسة مع خدمات Notion وSlack وZapier وواجهة الـ API الخلفية.
+
+الخريطة العامة للأقسام
+- بطاقات بزجاج سائل (Glassmorphism Cards): لعرض الملخصات، المصادر، ومخرجات الذكاء الاصطناعي.
+- لوحة التغريدات العلمية (Tweets Board): أعمدة لحالات التغريدات (Draft, To Review, Approved, Scheduled, Published) مع سحب وإفلات.
+- لوحة حالة التكامل (Integrations Status): حالة اتصال Notion/Slack/Zapier ومفاتيح التهيئة الأساسية.
+- نموذج إدخال تغريدة (Tweet Composer): موضوع/مصادر/وسوم + زر توليد عبر Perplexity API.
+- لوحة الإدارة (Admin Console): إعدادات الأمان، حدود المعدّل، مفاتيح البيئة، والتحكّم في التشغيلات الدورية.
+
+تصميم بصري: Glassmorphism
+- خلفية: تدرّج ناعم + ضبابية خلفية للبطاقات.
+- بطاقات: زجاج نصف شفاف، حدود خفيفة، ظل ناعم، زوايا مستديرة.
+- ألوان: محايدة مع تباين واضح للوضعين الفاتح/الداكن.
+
+CSS مختصر لبطاقة زجاج سائل
+```css
+.glass-card {
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 16px;
+}
+:root[data-theme="dark"] .glass-card {
+  background: rgba(20, 20, 20, 0.35);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+```
+
+React مختصر لبطاقة + قسم التغريدات
+```tsx
+// components/GlassCard.tsx
+import React from 'react';
+export const GlassCard: React.FC<React.PropsWithChildren<{ title?: string; footer?: React.ReactNode }>> = ({ title, footer, children }) => (
+  <div className="glass-card">
+    {title && <div style={{fontWeight:600, marginBottom:8}}>{title}</div>}
+    <div>{children}</div>
+    {footer && <div style={{marginTop:12}}>{footer}</div>}
+  </div>
+);
+
+// components/TweetsBoard.tsx
+import React from 'react';
+import { GlassCard } from './GlassCard';
+
+type Tweet = { id: string; title: string; tags?: string[]; status: 'Draft'|'To Review'|'Approved'|'Scheduled'|'Published' };
+const COLUMNS: Tweet['status'][] = ['Draft','To Review','Approved','Scheduled','Published'];
+
+export const TweetsBoard: React.FC<{ data: Tweet[]; onMove:(id:string, to:Tweet['status'])=>void }>=({data,onMove})=>{
+  return (
+    <div style={{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:16}}>
+      {COLUMNS.map(col=> (
+        <GlassCard key={col} title={col}>
+          <div onDragOver={e=>e.preventDefault()} onDrop={e=>{
+            const id = e.dataTransfer.getData('text/plain');
+            onMove(id, col);
+          }} style={{minHeight:220, display:'flex', flexDirection:'column', gap:8}}>
+            {data.filter(t=>t.status===col).map(t=> (
+              <div key={t.id} draggable onDragStart={e=>e.dataTransfer.setData('text/plain', t.id)}
+                   style={{padding:12, borderRadius:12, background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.2)'}}>
+                <div style={{fontWeight:600}}>{t.title}</div>
+                <div style={{opacity:0.8, fontSize:12}}>{t.tags?.map(x=>`#${x}`).join(' ')}</div>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      ))}
+    </div>
+  );
+}
+```
+
+نموذج إدخال التغريدة (Composer)
+- الحقول: topic, sources[], hashtags[], temperature, max_tokens.
+- أزرار: Generate (Perplexity), Save Draft, Send to Review.
+- تحقّق: 280 حرفًا، منع روابط غير مرغوبة، التحقق من الوسوم.
+
+مثال React مختصر للنموذج
+```tsx
+// components/TweetComposer.tsx
+import React, { useState } from 'react';
+export const TweetComposer: React.FC<{ onGenerate:(p:{topic:string;sources:string[];hashtags:string[]})=>Promise<string> }>=({onGenerate})=>{
+  const [topic,setTopic]=useState('');
+  const [sources,setSources]=useState<string[]>([]);
+  const [hashtags,setHashtags]=useState<string[]>([]);
+  const [draft,setDraft]=useState('');
+  return (
+    <div className="glass-card">
+      <input placeholder="الموضوع" value={topic} onChange={e=>setTopic(e.target.value)} />
+      <input placeholder="مصدر (اضغط Enter)" onKeyDown={e=>{ if(e.key==='Enter'){ setSources([...sources, (e.target as HTMLInputElement).value]); (e.target as HTMLInputElement).value=''; }}} />
+      <input placeholder="وسم (اضغط Enter)" onKeyDown={e=>{ if(e.key==='Enter'){ setHashtags([...hashtags, (e.target as HTMLInputElement).value.replace('#','')]); (e.target as HTMLInputElement).value=''; }}} />
+      <div style={{display:'flex', gap:8, marginTop:8}}>
+        <button onClick={async()=> setDraft(await onGenerate({topic,sources,hashtags}))}>Generate</button>
+        <button>Save Draft</button>
+        <button>Send to Review</button>
+      </div>
+      <textarea placeholder="المسودة" value={draft} onChange={e=>setDraft(e.target.value)} maxLength={280} />
+    </div>
+  );
+}
+```
+
+لوحة حالة التكامل (Notion/Slack/Zapier)
+- تعرض الحالة (Connected/Not configured/Failed) ومفاتيح البيئة المقروءة فقط.
+- إجراءات سريعة: اختبار الاتصال، إعادة الإرسال، فتح السجلات.
+
+```tsx
+// components/IntegrationsStatus.tsx
+import React from 'react';
+import { GlassCard } from './GlassCard';
+
+type Status = 'Connected'|'Not configured'|'Failed';
+export const IntegrationsStatus: React.FC<{ status:{ notion:Status; slack:Status; zapier:Status } }>=({status})=> (
+  <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16}}>
+    {(['notion','slack','zapier'] as const).map(k=> (
+      <GlassCard key={k} title={k.toUpperCase()} footer={<div style={{display:'flex', gap:8}}>
+        <button>Test</button><button>Retry</button><button>Logs</button>
+      </div>}>
+        <div style={{fontSize:14}}>Status: {status[k]}</div>
+        <div style={{opacity:0.7, fontSize:12}}>Configured via .env / config.py</div>
+      </GlassCard>
+    ))}
+  </div>
+);
+```
+
+لوحة الإدارة (Admin Console)
+- تبديل التكاملات + ضبط الحدود (rate limit) + جدولة مهام Celery.
+- إدارة مفاتيح البيئة عبر Secrets (عرض مقنّع).
+
+خطوات الربط مع API لكل قسم
+1) نموذج الإدخال (Perplexity)
+- Endpoint: POST /api/tweets/generate
+- Body: { topic, sources[], hashtags[] }
+- Action: يعيد نص المسودة + بيانات التحليل.
+
+2) لوحة التغريدات
+- GET /api/tweets?status=Draft|To%20Review|...
+- PATCH /api/tweets/{id} { status }
+- Websocket/Server-Sent Events اختياري للتحديث اللحظي.
+
+3) التكامل مع Notion/Slack/Zapier
+- Notion: POST /api/integrations/notion/pages  { title, content, tags, database_id }
+- Slack: POST /api/integrations/slack/message  { channel, text }
+- Zapier: POST /api/integrations/zapier/trigger { event, payload }
+
+4) لوحة الإدارة
+- GET/PUT /api/admin/settings  (limits, toggles, ids)
+- POST /api/admin/tasks/publish_to_integrations
+
+ملاحظات قابلية التوسّع والتكامل المعرفي
+- تصميم مركزي للمكوّنات (GlassCard/TweetsBoard) يسهل إعادة الاستخدام.
+- فصل طبقة الخدمات عن الواجهة عبر واجهات واضحة يجعل إضافة مصادر/تكاملات جديدة بسيطًا.
+- دعم مخازن معرفة خارجية (Notion/Docs) عبر وصلات موحّدة يسهّل التوسّع المعرفي.
+
+---
+
+تنويه مهم حول التوليد الذكي
 - يتم توليد التغريدات عبر Perplexity API بشكل صريح، وليس عبر OpenAI.
 - يرجى التأكد من ضبط مفتاح البيئة: PERPLEXITY_API_KEY في ملف .env.
 - لتسمية الخدمة وتوحيدها داخل الكود، يجب تعديل الملفات البرمجية لتكون الخدمة باسم: services/perplexity_tweet_generator.py بدل أي مرجع باسم openai.
 
-## مثال تكامل Python مع Perplexity API لطباعة تغريدة علمية بالعربية
+مثال تكامل Python مع Perplexity API لطباعة تغريدة علمية بالعربية
 يوضح المثال التالي كيفية استدعاء واجهة Perplexity للطباعة السريعة لتغريدة عربية علمية. استبدل YOUR_PERPLEXITY_API_KEY بمفتاحك:
 ```python
-import os
-import requests
-
+import os, requests
 API_KEY = os.getenv("PERPLEXITY_API_KEY", "YOUR_PERPLEXITY_API_KEY")
 ENDPOINT = "https://api.perplexity.ai/chat/completions"
-headers = {
-    "Authorization": f"Bearer {API_KEY}",
-    "Content-Type": "application/json",
-}
+headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
 payload = {
-    "model": "llama-3.1-sonar-small-128k-chat",  # اختر الموديل المناسب لحسابك
-    "messages": [
-        {
-            "role": "system",
-            "content": "أنت مساعد خبير ينتج تغريدات عربية علمية قصيرة وموجزة مع وسوم مناسبة.",
-        },
-        {
-            "role": "user",
-            "content": (
-                "ولّد تغريدة عربية علمية عن تأثير الذكاء الاصطناعي على أسواق العمل في الشرق الأوسط، "
-                "مع تضمين 2-3 وسوم مناسبة دون روابط، وبأسلوب رصين ومختصر (حد أقصى 280 حرفًا)."
-            ),
-        },
-    ],
-    "temperature": 0.5,
-    "max_tokens": 180,
+  "model": "llama-3.1-sonar-small-128k-chat",
+  "messages": [
+    {"role": "system", "content": "أنت مساعد خبير ينتج تغريدات عربية علمية قصيرة وموجزة مع وسوم مناسبة."},
+    {"role": "user", "content": "ولّد تغريدة عربية علمية عن تأثير الذكاء الاصطناعي على أسواق العمل في الشرق الأوسط، مع تضمين 2-3 وسوم مناسبة دون روابط، وبأسلوب رصين ومختصر (حد أقصى 280 حرفًا)."}
+  ],
+  "temperature": 0.5,
+  "max_tokens": 180
 }
 resp = requests.post(ENDPOINT, headers=headers, json=payload, timeout=60)
 resp.raise_for_status()
-data = resp.json()
-content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-print(content)
+print(resp.json().get("choices", [{}])[0].get("message", {}).get("content", ""))
 ```
 
-**نموذج مخرجات متوقعة:**
-
-`🧠 تقارير حديثة تشير إلى أن الذكاء الاصطناعي سيعيد تشكيل مهارات سوق العمل في الشرق الأوسط، مع تركيز متزايد على الوظائف التقنية والتحليلية. الاستثمار في إعادة التأهيل والتعلم المستمر سيحدد التنافسية مستقبلًا. #الذكاء_الاصطناعي #أسواق_العمل #الشرق_الأوسط`
-
-## 📋 خطة العمل السريعة
-
+📋 خطة العمل السريعة
 ### Sprint 0: إعداد البنية الأساسية (الأسبوع الأول)
 - ✅ إنشاء مستودع المشروع
 - 🔄 إعداد بيئة التطوير (Docker, PostgreSQL)
@@ -63,253 +206,58 @@ print(content)
 - 📊 واجهة إدارة أساسية
 - ⚡ إعداد Celery للمهام غير المتزامنة
 
-## 🏗️ الهيكل البرمجي
-`x-research-curator-ar/
+🏗️ الهيكل البرمجي
+```
+x-research-curator-ar/
 ├── app/
 │   ├── api/
 │   │   ├── endpoints/
-│   │   │   ├── research.py           # نقاط البحث العلمي
-│   │   │   ├── tweets.py             # إدارة التغريدات
-│   │   │   └── integrations.py       # التكاملات الخارجية
-│   │   └── deps.py                   # التبعيات المشتركة
+│   │   │   ├── research.py # نقاط البحث العلمي
+│   │   │   ├── tweets.py   # إدارة التغريدات
+│   │   │   └── integrations.py # التكاملات الخارجية
+│   │   └── deps.py          # التبعيات المشتركة
 │   ├── core/
-│   │   ├── config.py                 # إعدادات التطبيق
-│   │   ├── security.py               # الأمان والمصادقة
-│   │   └── database.py               # إعدادات قاعدة البيانات
+│   │   ├── config.py   # إعدادات التطبيق
+│   │   ├── security.py  # الأمان والمصادقة
+│   │   └── database.py  # إعدادات قاعدة البيانات
 │   ├── models/
-│   │   ├── research.py               # نماذج البحث العلمي
-│   │   ├── tweets.py                 # نماذج التغريدات
-│   │   └── sources.py                # نماذج المصادر
+│   │   ├── research.py # نماذج البحث العلمي
+│   │   ├── tweets.py   # نماذج التغريدات
+│   │   └── sources.py  # نماذج المصادر
 │   ├── services/
-│   │   ├── research_engine.py        # محرك البحث العلمي
-│   │   ├── ai_curator.py             # منسق الذكاء الاصطناعي
+│   │   ├── research_engine.py            # محرك البحث العلمي
+│   │   ├── ai_curator.py                 # منسق الذكاء الاصطناعي
 │   │   ├── perplexity_tweet_generator.py # مولد التغريدات (Perplexity)
 │   │   └── integrations/
-│   │       ├── notion.py             # تكامل Notion
-│   │       ├── slack.py              # تكامل Slack
-│   │       └── zapier.py             # تكامل Zapier
+│   │       ├── notion.py # تكامل Notion
+│   │       ├── slack.py  # تكامل Slack
+│   │       └── zapier.py # تكامل Zapier
 │   └── workers/
-│       └── celery_app.py             # مهام Celery
+│       └── celery_app.py # مهام Celery
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
-└── README.md`
-
-## 🛠️ التقنيات المستخدمة
-- **Backend:** FastAPI (Python)
-- **قاعدة البيانات:** PostgreSQL + pgvector
-- **المهام غير المتزامنة:** Celery + Redis
-- **الذكاء الاصطناعي:** Perplexity API لتوليد المحتوى
-- **التكاملات:** Notion, Slack, Zapier (للأتمتة وتسهيل سير العمل)
-- **النشر:** Docker & Docker Compose
-- **البحث العلمي:** arXiv, PubMed, Google Scholar APIs
-
-> **🔗 التكامل المستقبلي:** تم تصميم المنصة لدعم Zapier وSlack وNotion لتسهيل الأتمتة الكاملة وتبسيط إدارة سير العمل البحثي.
-
-## 📱 نموذج تغريدة علمية
-### المدخلات:
-موضوع: "تأثير الذكاء الاصطناعي على أسواق العمل في الشرق الأوسط"
-
-مصادر: ["MIT Technology Review", "Nature AI", "Middle East Economic Survey"]
-
-الوسوم: ["#الذكاء_الاصطناعي", "#أسواق_العمل", "#الشرق_الأوسط"]
-
-### النتيجة (مثال):
-`🧠 دراسة حديثة من MIT تكشف: الذكاء الاصطناعي قد يخلق فرص عمل جديدة مع تحول في المهارات المطلوبة. 📊 الحل: الاستثمار في التدريب وإعادة التأهيل. #الذكاء_الاصطناعي #أسواق_العمل #الشرق_الأوسط`
-
-## 🚀 تعليمات التشغيل
-### متطلبات النظام
-- Docker و Docker Compose
-- Python 3.9+
-- PostgreSQL 14+ مع pgvector
-
-### التشغيل السريع
-```bash
-# استنساخ المستودع
-git clone https://github.com/khaliiid501/x-research-curator-ar.git
-cd x-research-curator-ar
-# إنشاء ملف البيئة
-cp .env.example .env
-# تحرير المتغيرات البيئية
-# أضف PERPLEXITY_API_KEY بدلاً من OPENAI_API_KEY
-nano .env
-# تشغيل المنصة
-docker-compose up -d
-# الوصول للواجهة
-# API: http://localhost:8000
-# Documentation: http://localhost:8000/docs
+└── README.md
 ```
 
-### متغيرات البيئة المطلوبة
-```env
-# Database
-POSTGRES_USER=curator
-POSTGRES_PASSWORD=your_secure_password
-POSTGRES_DB=research_curator
+🛠️ التقنيات المستخدمة
+- Backend: FastAPI (Python)
+- قاعدة البيانات: PostgreSQL + pgvector
+- المهام غير المتزامنة: Celery + Redis
+- الذكاء الاصطناعي: Perplexity API لتوليد المحتوى
+- التكاملات: Notion, Slack, Zapier
+- النشر: Docker & Docker Compose
+- البحث العلمي: arXiv, PubMed, Google Scholar APIs
 
-# APIs
-PERPLEXITY_API_KEY=your_perplexity_key
-NOTION_API_KEY=your_notion_key
-SLACK_BOT_TOKEN=your_slack_token
-ZAPIER_WEBHOOK_URL=your_zapier_webhook
+خطوات الربط البرمجي مع Notion وSlack وZapier
+- موضحة أعلاه ضمن لوحة التكامل وروابط API الخلفية، مع أمثلة services/integrations/*.py.
 
-# Security
-SECRET_KEY=your_secret_key_here
-ALGORITHM=HS256
-```
+x-research-curator-ar (English)
 
-## خطوات الربط البرمجي مع Notion وSlack وZapier
-يوضح هذا القسم دور كل خدمة، متطلبات الإعداد في .env وapp/core/config.py، وأمثلة بايثون مختصرة لاستخدامها داخل services/integrations.
-
-- دور الخدمات باختصار:
-  - Notion: حفظ المخرجات (أبحاث، تغريدات) في قاعدة معرفة ولوحات Kanban.
-  - Slack: إرسال تنبيهات ومراجعات سريعة للفريق داخل قنوات محددة.
-  - Zapier: تشغيل أتمتة خارجية (مثل جدولة النشر، إرسال إلى Google Sheets، الخ).
-
-- متطلبات .env وconfig.py:
-  - ملف .env أعلاه يحتوي على NOTION_API_KEY وSLACK_BOT_TOKEN وZAPIER_WEBHOOK_URL.
-  - في app/core/config.py أضف/تأكد من الآتي:
-    ```python
-    from pydantic import BaseSettings
-
-    class Settings(BaseSettings):
-        NOTION_API_KEY: str
-        SLACK_BOT_TOKEN: str
-        ZAPIER_WEBHOOK_URL: str
-        # ... بقية الإعدادات الموجودة
-
-        class Config:
-            env_file = ".env"
-
-    settings = Settings()
-    ```
-
-### 1) Notion
-- المتطلبات: أنشئ Integration من https://www.notion.so/my-integrations وأعطِ الإذن لقاعدة/صفحة معينة، واحصل على database_id.
-- مثال Python مختصر (services/integrations/notion.py):
-```python
-# pip install notion-client
-from notion_client import Client
-from app.core.config import settings
-
-notion = Client(auth=settings.NOTION_API_KEY)
-
-def create_tweet_page(database_id: str, title: str, content: str, tags: list[str] | None = None):
-    props = {
-        "Name": {"title": [{"text": {"content": title}}]},
-        "Status": {"select": {"name": "To Review"}},
-    }
-    if tags:
-        props["Tags"] = {"multi_select": [{"name": t} for t in tags]}
-
-    return notion.pages.create(
-        parent={"database_id": database_id},
-        properties=props,
-        children=[{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"text": {"content": content}}]}}],
-    )
-```
-- الاستخدام:
-```python
-# داخل منسق العمل بعد توليد التغريدة
-create_tweet_page(database_id="YOUR_DB_ID", title="تغريدة: الذكاء الاصطناعي", content="النص...", tags=["AI", "ME"])
-```
-
-### 2) Slack
-- المتطلبات: أنشئ Slack App، فعّل Bot Token Scopes مثل chat:write، أضِف التطبيق إلى القناة، واحصل على SLACK_BOT_TOKEN.
-- مثال Python مختصر (services/integrations/slack.py):
-```python
-# pip install slack_sdk
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
-from app.core.config import settings
-
-client = WebClient(token=settings.SLACK_BOT_TOKEN)
-
-def send_message(channel: str, text: str):
-    try:
-        return client.chat_postMessage(channel=channel, text=text)
-    except SlackApiError as e:
-        # يفضّل تسجيل الخطأ بدلاً من طباعته في الإنتاج
-        raise RuntimeError(f"Slack error: {e.response['error']}")
-```
-- الاستخدام:
-```python
-send_message(channel="#research-curation", text="تم إنشاء مسودة تغريدة جديدة للمراجعة.")
-```
-
-### 3) Zapier
-- المتطلبات: أنشئ Zap من نوع Catch Hook واحصل على ZAPIER_WEBHOOK_URL.
-- مثال Python مختصر (services/integrations/zapier.py):
-```python
-import json
-import requests
-from app.core.config import settings
-
-def trigger_zap(payload: dict):
-    resp = requests.post(settings.ZAPIER_WEBHOOK_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"}, timeout=30)
-    resp.raise_for_status()
-    return resp.json() if resp.content else {"ok": True}
-```
-- الاستخدام:
-```python
-trigger_zap({"event": "tweet_draft_created", "tweet_id": 123, "topic": "AI & Jobs"})
-```
-
-### ملاحظات الأمان والتنفيذ
-- لا تحفظ المفاتيح داخل المستودع. استخدم .env وSecrets في بيئات النشر.
-- فعّل حدود المعدّل retries والـ timeouts لكل تكامل.
-- راقب السجلات (logging) وتجنب طباعة الأسرار.
-- استخدم صلاحيات أقل ضرورة لـ Notion وSlack (least privilege).
-
-### ربط لوحة الإدارة واستخدام Celery
-- في واجهة الإدارة، أضف عناصر تحكم لتفعيل/تعطيل كل تكامل وتحديد معرفات مثل database_id واسم القناة.
-- استخدم Celery للمهام غير المتزامنة الثقيلة مثل:
-  - إنشاء صفحات Notion عند وصول دفعات نتائج كبيرة.
-  - إرسال تنبيهات Slack الدورية أو الجماعية.
-  - استدعاء Zapier لسلاسل أتمتة متعددة.
-- مثال Celery (app/workers/celery_app.py):
-```python
-from celery import Celery
-from app.services.integrations.notion import create_tweet_page
-from app.services.integrations.slack import send_message
-from app.services.integrations.zapier import trigger_zap
-
-celery = Celery(__name__, broker="redis://redis:6379/0", backend="redis://redis:6379/0")
-
-@celery.task
-def publish_to_integrations(tweet: dict):
-    if tweet.get("to_notion"):
-        create_tweet_page(database_id=tweet["notion_db"], title=tweet["title"], content=tweet["content"], tags=tweet.get("tags"))
-    if tweet.get("to_slack"):
-        send_message(channel=tweet.get("slack_channel", "#general"), text=f"مسودة جديدة: {tweet['title']}")
-    if tweet.get("to_zapier"):
-        trigger_zap({"event": "tweet_published", "title": tweet["title"]})
-```
-- من لوحة الإدارة، استدعِ المهمة كالتالي:
-```python
-from app.workers.celery_app import publish_to_integrations
-publish_to_integrations.delay({
-  "title": "تأثير الذكاء الاصطناعي على سوق العمل",
-  "content": "النص...",
-  "tags": ["AI", "Work"],
-  "to_notion": True, "notion_db": "YOUR_DB_ID",
-  "to_slack": True, "slack_channel": "#research-curation",
-  "to_zapier": True
-})
-```
-
----
-
-# x-research-curator-ar (English)
-
-🔬 **AI-Powered Arabic Scientific Research Curator**
-
+🔬 AI-Powered Arabic Scientific Research Curator
 An intelligent platform that aggregates and analyzes Western academic sources to generate high-quality Arabic tweets in politics, economics, international relations, and Middle Eastern studies.
 
-> **📌 Important Note:** The platform is designed for future integration with **Zapier**, **Slack**, and **Notion** to facilitate automation and streamline workflows.
-
-- Generation is explicitly powered by **Perplexity API** (not OpenAI).
-- Service file should be named `services/perplexity_tweet_generator.py`.
+> Important: Platform designed for Zapier, Slack, Notion integrations.
 
 ### Quick Start
 ```bash
@@ -320,27 +268,3 @@ cp .env.example .env
 docker-compose up -d
 # Access: http://localhost:8000/docs
 ```
-
-### Python Integration Example (English)
-```python
-import os
-import requests
-API_KEY = os.getenv("PERPLEXITY_API_KEY")
-ENDPOINT = "https://api.perplexity.ai/chat/completions"
-headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-payload = {
-    "model": "llama-3.1-sonar-small-128k-chat",
-    "messages": [
-        {"role": "system", "content": "You write concise Arabic scientific tweets."},
-        {"role": "user", "content": "اكتب تغريدة عربية علمية موجزة عن الحوسبة الكمية وتأثيرها المتوقع على التشفير."},
-    ],
-}
-print(requests.post(ENDPOINT, headers=headers, json=payload).json()["choices"][0]["message"]["content"])
-```
-
-**المساهمة مرحب بها | Contributions Welcome**
-
-هذا مشروع مفتوح المصدر يهدف لخدمة المجتمع العلمي العربي  
-This open-source project aims to serve the Arabic scientific community
-
-📧 **Contact:** khalid50154@gmail.com | 🐙 **GitHub:**
